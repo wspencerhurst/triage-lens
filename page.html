@@ -1,0 +1,573 @@
+<title>Triage Lens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/*LEAFLET_CSS*/
+/* Layout: control-room console. Row 1 = response queue beside a large live map; row 2 = incident breakdown beside the raw report feed. Page scrolls; nothing is squeezed. */
+:root{
+  --bg:#e9ecf0; --panel:#fbfcfd; --raised:#ffffff; --ink:#111922; --muted:#5b6876; --faint:#8794a2; --line:#d5dbe2; --soft:#f0f3f6;
+  --accent:#1d5fbf; --accent-ink:#ffffff;
+  --p1:#c8241f; --p2:#d0610a; --p3:#a77d00; --p4:#5f7187; --rev:#6f43c4;
+  --p1-bg:#fbe6e4; --p2-bg:#fcede0; --p3-bg:#f6eed2; --p4-bg:#e7ebf0; --rev-bg:#eee7fa;
+  --mark:#ffe08a; --mark-ink:#3b2a00;
+  --display:'Barlow Condensed','Arial Narrow',sans-serif;
+  --sans:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#090d12; --panel:#10161d; --raised:#151d26; --ink:#e2e8ee; --muted:#8d9aa8; --faint:#5f6c7a; --line:#212b36; --soft:#18212b;
+    --accent:#6aa5f0; --accent-ink:#06111f;
+    --p1:#ff5b52; --p2:#ff9443; --p3:#e5c03d; --p4:#8798ab; --rev:#ae8bf5;
+    --p1-bg:#371514; --p2-bg:#362210; --p3-bg:#312910; --p4-bg:#1b232d; --rev-bg:#271d3d;
+    --mark:#5c4810; --mark-ink:#ffe7a3;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#090d12; --panel:#10161d; --raised:#151d26; --ink:#e2e8ee; --muted:#8d9aa8; --faint:#5f6c7a; --line:#212b36; --soft:#18212b;
+  --accent:#6aa5f0; --accent-ink:#06111f;
+  --p1:#ff5b52; --p2:#ff9443; --p3:#e5c03d; --p4:#8798ab; --rev:#ae8bf5;
+  --p1-bg:#371514; --p2-bg:#362210; --p3-bg:#312910; --p4-bg:#1b232d; --rev-bg:#271d3d;
+  --mark:#5c4810; --mark-ink:#ffe7a3;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.num{font-family:var(--display);font-variant-numeric:tabular-nums}
+
+.app{display:flex;flex-direction:column;gap:14px;padding-inline:16px;padding-block:14px 28px;max-width:1680px;margin:0 auto}
+
+/* ---------- top bar ---------- */
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:12px}
+.mark{width:38px;height:38px;flex:none;display:grid;place-items:center;background:var(--ink);border-radius:7px}
+.mark svg{width:24px;height:24px}
+.brand h1{margin:0;font:700 26px/1 var(--display);letter-spacing:.01em;text-transform:uppercase}
+.brand p{margin:3px 0 0;color:var(--muted);font-size:12.5px}
+.ctrl{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.clock{display:flex;align-items:center;gap:10px;padding:0 6px 0 0}
+.live{display:inline-flex;align-items:center;gap:6px;font:600 11px var(--mono);letter-spacing:.08em;color:var(--p1);text-transform:uppercase}
+.live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--p1);animation:blink 1.2s steps(2,start) infinite}
+.live.paused{color:var(--muted)} .live.paused::before{background:var(--muted);animation:none}
+@keyframes blink{to{visibility:hidden}}
+#clock{font:600 26px/1 var(--display);letter-spacing:.02em}
+.btn{border:1px solid var(--line);background:var(--raised);border-radius:6px;padding:7px 12px;cursor:pointer;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;line-height:1.2}
+.btn:hover{border-color:var(--faint)}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:var(--panel)}
+.btn.small{padding:4px 9px;font-size:12px}
+.btn.rec{background:var(--p1);border-color:var(--p1);color:#fff}
+
+/* ---------- headline strip ---------- */
+.strip{display:flex;flex-wrap:wrap;align-items:stretch;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.strip > div{padding:10px 18px;display:flex;flex-direction:column;justify-content:center;gap:2px;border-right:1px solid var(--line);min-width:0}
+.strip > div:last-child{border-right:0}
+.strip .lbl{font:600 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.strip b{font:600 32px/1 var(--display);font-variant-numeric:tabular-nums}
+.strip small{font-size:12px;color:var(--muted)}
+.eq{flex:1 1 360px;flex-direction:row!important;align-items:center!important;gap:14px!important;justify-content:flex-start!important}
+.eq .arrow{font:500 26px var(--display);color:var(--faint)}
+.eq .cell{display:flex;flex-direction:column;gap:2px}
+.strip .crit b{color:var(--p1)} .strip .rv b{color:var(--rev)}
+@media (max-width:760px){.strip > div{flex:1 1 45%;border-right:0;border-bottom:1px solid var(--line)}}
+
+.stressout{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px 24px}
+.stressout h3{grid-column:1/-1;margin:0;font:600 18px var(--display);text-transform:uppercase;letter-spacing:.02em;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.stressout .kv span{display:block;font:600 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.stressout .kv b{font:600 28px/1.1 var(--display)}
+.stressout p{grid-column:1/-1;margin:0;color:var(--muted);font-size:12.5px;max-width:110ch}
+
+/* ---------- panels ---------- */
+.row1{display:grid;gap:14px;grid-template-columns:minmax(320px,400px) minmax(0,1fr);height:clamp(520px,66vh,780px)}
+.row2{display:grid;gap:14px;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);height:clamp(560px,78vh,860px)}
+@media (max-width:1080px){.row1,.row2{grid-template-columns:1fr;height:auto}.row1 .panel,.row2 .panel{height:620px}.row1 .mapp{height:560px}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+.ph{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap;min-height:46px}
+.ph h2{margin:0;font:700 15px var(--display);text-transform:uppercase;letter-spacing:.06em}
+.ph .hint{color:var(--muted);font-size:12px}
+.scroll{overflow:auto;flex:1;min-height:0}
+
+/* ---------- queue ---------- */
+.qlist{display:flex;flex-direction:column}
+.item{display:grid;grid-template-columns:60px minmax(0,1fr);gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);cursor:pointer;position:relative}
+.item:hover{background:var(--soft)}
+.item.sel{background:var(--pb)}
+.item.p1{--pc:var(--p1);--pb:var(--p1-bg)} .item.p2{--pc:var(--p2);--pb:var(--p2-bg)} .item.p3{--pc:var(--p3);--pb:var(--p3-bg)} .item.p4{--pc:var(--p4);--pb:var(--p4-bg)}
+.item.flash{animation:flash 1.3s ease-out 2}
+@keyframes flash{0%{background:var(--pb)}100%{background:transparent}}
+.badge{width:60px;height:60px;border-radius:6px;background:var(--pc);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.badge .p{font:700 12px var(--mono);letter-spacing:.06em;opacity:.9}
+.badge .s{font:700 30px/1 var(--display);margin-top:2px}
+.ibody{display:flex;flex-direction:column;gap:5px;min-width:0}
+.itop{display:flex;align-items:baseline;gap:8px;font-size:11.5px;color:var(--muted)}
+.itop .tier{font:700 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--pc)}
+.itop .id{font-family:var(--mono)}
+.itop .cnt{margin-left:auto;font:600 13px var(--display);color:var(--ink);letter-spacing:.02em;white-space:nowrap}
+.ititle{font-weight:700;font-size:14.5px;line-height:1.3}
+.minibars{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:2px}
+.mb{height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.mb i{display:block;height:100%;background:var(--pc)}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{font-size:11px;font-weight:600;padding:1px 7px;border-radius:4px;background:var(--soft);border:1px solid var(--line);white-space:nowrap}
+.chip.s3{background:var(--p1-bg);border-color:transparent;color:var(--p1)}
+.chip.s2{background:var(--p2-bg);border-color:transparent;color:var(--p2)}
+.chip.s1{background:var(--p3-bg);border-color:transparent;color:var(--p3)}
+.chip.v{background:var(--rev-bg);border-color:transparent;color:var(--rev)}
+.esc{font-size:12px;font-weight:600;color:var(--p1)}
+.review{border:1px dashed var(--rev);background:var(--rev-bg);border-radius:6px;padding:8px 10px;font-size:12.5px;display:flex;flex-direction:column;gap:6px;margin-top:2px}
+.review b{color:var(--rev)}
+.review .why{color:var(--muted);font-size:12px}
+.review .acts{display:flex;gap:6px;flex-wrap:wrap}
+.empty{color:var(--muted);padding:28px 18px;text-align:center;font-size:13px}
+
+/* ---------- map ---------- */
+.mapbox{position:relative;flex:1;min-height:0}
+#map{position:absolute;inset:0;background:var(--soft)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--raised)}
+.seg button{border:0;background:transparent;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+.legend{display:flex;gap:12px;align-items:center;font:500 11px var(--mono);color:var(--muted);flex-wrap:wrap;text-transform:uppercase;letter-spacing:.05em}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.maptools{display:flex;gap:8px;align-items:center}
+.placehint{position:absolute;z-index:800;top:12px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 14px;border-radius:6px;font-weight:600;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.3);display:flex;gap:10px;align-items:center}
+.placehint button{background:transparent;border:1px solid currentColor;border-radius:4px;padding:1px 8px;cursor:pointer;font-size:12px;color:inherit}
+.placing .leaflet-container{cursor:crosshair}
+.leaflet-container{font-family:var(--sans);background:var(--soft)}
+.leaflet-control-attribution{font-size:10px}
+.leaflet-bar a{background:var(--raised);color:var(--ink);border-color:var(--line)}
+.leaflet-div-icon{background:none;border:0}
+.pin{position:relative;transform:translate(-50%,-100%);margin-top:-8px;width:max-content;display:flex;align-items:stretch;border-radius:5px;overflow:hidden;box-shadow:0 3px 12px rgba(0,0,0,.35);font:700 12px/1 var(--mono);color:#fff;background:var(--pc);border:1.5px solid rgba(255,255,255,.9);cursor:pointer}
+.pin::after{content:"";position:absolute;left:50%;bottom:-7px;margin-left:-6px;border:6px solid transparent;border-top-color:var(--pc);border-bottom:0}
+.pin span{padding:5px 7px;display:flex;align-items:center}
+.pin .sc{background:rgba(0,0,0,.22);font:700 14px/1 var(--display)}
+.pin.p1{--pc:var(--p1)} .pin.p2{--pc:var(--p2)} .pin.p3{--pc:var(--p3)} .pin.p4{--pc:var(--p4)}
+.pin.rv{border:1.5px dashed #fff;background-image:repeating-linear-gradient(135deg,transparent 0 6px,rgba(255,255,255,.14) 6px 12px)}
+.pin.sel{outline:3px solid var(--ink);outline-offset:1px}
+.halo{width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:var(--p1);opacity:.6;animation:halo 1.8s ease-out infinite}
+@keyframes halo{from{transform:scale(.6);opacity:.7}to{transform:scale(4.5);opacity:0}}
+.leaflet-tooltip{font-family:var(--sans);font-size:12px;max-width:280px;white-space:normal}
+
+/* ---------- detail ---------- */
+.dbody{padding:16px 18px;display:flex;flex-direction:column;gap:18px}
+.dhead{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;align-items:center}
+.bigscore{width:96px;height:96px;border-radius:8px;background:var(--pc);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.bigscore b{font:700 50px/1 var(--display)}
+.bigscore span{font:600 10.5px var(--mono);letter-spacing:.08em;opacity:.9;margin-top:2px}
+.dhead h3{margin:0;font:700 24px/1.1 var(--display);text-transform:uppercase;letter-spacing:.01em}
+.dhead .tierline{font:700 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--pc);margin-bottom:4px}
+.dhead p{margin:4px 0 0;color:var(--muted);font-size:12.5px}
+.sec h4{margin:0 0 10px;font:600 10.5px var(--mono);text-transform:uppercase;letter-spacing:.09em;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.factors{display:flex;flex-direction:column;gap:12px}
+.factor{display:grid;grid-template-columns:150px minmax(0,1fr) 44px;gap:4px 12px;align-items:center}
+.factor .fl{font-weight:600;font-size:13px}
+.factor .fl small{display:block;font:500 10.5px var(--mono);color:var(--faint);letter-spacing:.04em}
+.bar{height:10px;border-radius:3px;background:var(--soft);border:1px solid var(--line);overflow:hidden;position:relative}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--pc);border-radius:2px;transition:width .5s ease}
+.factor .fv{font:600 20px/1 var(--display);text-align:right;font-variant-numeric:tabular-nums}
+.factor .ev{grid-column:2/4;font-size:12px;color:var(--muted)}
+@media (max-width:560px){.factor{grid-template-columns:1fr 44px}.factor .bar{grid-column:1/-1;grid-row:2}.factor .ev{grid-column:1/-1}}
+.rulebox{font-size:12.5px;padding:9px 12px;border-radius:6px;background:var(--pb);color:var(--ink);border:1px solid var(--line)}
+.rulebox b{color:var(--pc)}
+.qmsg{border:1px solid var(--line);background:var(--soft);border-radius:6px;padding:10px 12px;font-size:13px;display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
+.qmsg q{font-style:italic}
+.rlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.rrow{border:1px solid var(--line);border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:7px;background:var(--raised)}
+.rmeta{display:flex;gap:8px;align-items:center;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+.rmeta .t{font-family:var(--mono);color:var(--ink);font-weight:500}
+.tag{font:600 10px var(--mono);padding:2px 6px;border-radius:3px;background:var(--soft);border:1px solid var(--line);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.tone{display:inline-flex;align-items:center;gap:6px;margin-left:auto;font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.tone .segs{display:inline-flex;gap:2px}
+.tone .segs i{width:7px;height:10px;border-radius:1px;background:var(--line)}
+.tone .segs i.on{background:var(--tc)}
+.rtext{font-size:13.5px;line-height:1.5}
+mark{background:var(--mark);color:var(--mark-ink);border-radius:2px;padding:0 2px;font-weight:600}
+.ai{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 12px;font-size:12px;border-top:1px dashed var(--line);padding-top:7px}
+.ai dt{color:var(--faint);font:500 10.5px var(--mono);text-transform:uppercase;letter-spacing:.05em;padding-top:1px}
+.ai dd{margin:0;min-width:0}
+.match{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:10px;align-items:center}
+.match b{font-family:var(--mono);color:var(--ink)}
+
+/* ---------- feed ---------- */
+.add{display:flex;gap:6px;padding:12px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:var(--soft)}
+.add input{flex:1;min-width:180px;border:1px solid var(--line);background:var(--raised);border-radius:6px;padding:8px 10px}
+.add .note{width:100%;font-size:11.5px;color:var(--muted)}
+.feed{list-style:none;margin:0;padding:0}
+.feed li{display:grid;grid-template-columns:62px minmax(0,1fr);gap:3px 10px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer}
+.feed li:hover{background:var(--soft)}
+.feed .t{font:500 11.5px var(--mono);color:var(--muted);padding-top:1px}
+.feed .txt{min-width:0}
+.feed .txt .ch{font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--faint);margin-right:6px}
+.feed .dec{grid-column:2;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:6px}
+.dec::before{content:"";width:7px;height:7px;border-radius:2px;background:currentColor}
+.dec.linked{color:var(--muted)} .dec.new{color:var(--accent)} .dec.review{color:var(--rev)}
+.feed li.fresh{animation:fresh 1.2s ease-out}
+@keyframes fresh{from{background:var(--soft)}to{background:transparent}}
+
+/* ---------- how ---------- */
+.how{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}
+.how h2{margin:0 0 14px;font:700 15px var(--display);text-transform:uppercase;letter-spacing:.06em}
+.howgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px 24px}
+.howgrid h3{margin:0 0 6px;font:600 10.5px var(--mono);text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
+.howgrid p,.howgrid ul{margin:0;font-size:13px}
+.howgrid ul{padding-left:16px}
+.howgrid li{margin-bottom:3px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-width="2.2"><circle cx="10.5" cy="10.5" r="6.5" stroke="#fff"/><path d="M15.5 15.5l5 5" stroke="#fff"/><circle cx="10.5" cy="10.5" r="2.3" fill="#ff5b52" stroke="none"/></svg></div>
+      <div><h1>Triage Lens</h1><p>Folds duplicate reports into one incident and ranks every incident by urgency.</p></div>
+    </div>
+    <div class="ctrl">
+      <div class="clock"><span class="live" id="live">Live replay</span><span id="clock">14:02:00</span></div>
+      <button id="play" class="btn" type="button">Pause</button>
+      <label class="sr" for="speed">Playback speed</label>
+      <select id="speed" class="btn"><option value="1">1×</option><option value="5">5×</option><option value="10" selected>10×</option><option value="25">25×</option></select>
+      <button id="replay" class="btn" type="button">Replay</button>
+      <button id="stress" class="btn primary" type="button">Stress test · 10,000 reports</button>
+    </div>
+  </header>
+
+  <section class="strip" aria-label="Summary">
+    <div class="eq">
+      <div class="cell"><span class="lbl">Reports in</span><b id="sReports">0</b><small id="sChannels">0 calls · 0 texts · 0 app</small></div>
+      <span class="arrow" aria-hidden="true">→</span>
+      <div class="cell"><span class="lbl">Incidents</span><b id="sInc">0</b><small id="sDupPct">0 duplicates folded</small></div>
+    </div>
+    <div class="crit"><span class="lbl">P1 · Immediate</span><b id="sP1">0</b><small>threat to life</small></div>
+    <div class="rv"><span class="lbl">Needs review</span><b id="sRev">0</b><small>possible duplicates</small></div>
+    <div><span class="lbl">Scenario</span><small style="color:var(--ink);font-weight:600">I-5 pileup at Mercer St, Seattle</small><small>plus unrelated calls citywide</small></div>
+  </section>
+
+  <section id="stressOut" class="stressout" hidden aria-live="polite"></section>
+
+  <div class="row1">
+    <section class="panel" aria-label="Response queue">
+      <div class="ph"><h2>Response queue</h2><span class="hint">One row per incident · most urgent first</span></div>
+      <div id="queue" class="scroll qlist"></div>
+    </section>
+    <section class="panel mapp" aria-label="Live map">
+      <div class="ph">
+        <h2>Live map</h2>
+        <div class="legend" aria-hidden="true"><span><i style="background:var(--p1)"></i>P1</span><span><i style="background:var(--p2)"></i>P2</span><span><i style="background:var(--p3)"></i>P3</span><span><i style="background:var(--p4)"></i>P4</span><span><i style="border:1.5px dashed var(--rev)"></i>Review</span></div>
+        <div class="maptools">
+          <div class="seg" role="group" aria-label="Map style"><button type="button" data-layer="street" aria-pressed="true">Streets</button><button type="button" data-layer="sat" aria-pressed="false">Satellite</button></div>
+          <button type="button" class="btn small" id="fit">Fit all</button>
+        </div>
+      </div>
+      <div class="mapbox" id="mapbox">
+        <div id="map" role="application" aria-label="Incident map"></div>
+        <div id="placeHint" class="placehint" hidden><span>Click the map where the caller is</span><button type="button" id="cancelPlace">Cancel</button></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="row2">
+    <section class="panel" aria-label="Incident breakdown">
+      <div class="ph"><h2>Why this incident ranks here</h2><span class="hint" id="dHint">Select a row or map pin</span></div>
+      <div id="detail" class="scroll dbody"></div>
+    </section>
+    <section class="panel" aria-label="Incoming reports">
+      <div class="ph"><h2>Incoming reports</h2><span class="hint">Every report, as it arrives</span></div>
+      <form id="addForm" class="add" autocomplete="off">
+        <label for="addText" class="sr">Simulate a call</label>
+        <input id="addText" placeholder="Try: “the man in the red truck at I-5 and Mercer is trapped”">
+        <button type="button" class="btn" id="micBtn" title="Transcribe a spoken call">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Speak</span>
+        </button>
+        <button type="submit" class="btn primary">Send call</button>
+        <span class="note" id="liveNote">The location is read from the words when a known place is named. Otherwise, click the map.</span>
+      </form>
+      <ol id="feed" class="scroll feed"></ol>
+    </section>
+  </div>
+
+  <section class="how" aria-label="How it works">
+    <h2>How it works</h2>
+    <div class="howgrid">
+      <div><h3>1 · Listen</h3><p>Speech-to-text transcribes each call live. The system extracts the type of emergency, the place named, identifying details (colors, vehicles, direction of travel), danger words in English and Spanish, and a voice-stress reading of how panicked the caller sounds.</p></div>
+      <div><h3>2 · Match</h3><p>Each report is scored against open incidents nearby: 45% distance (adjusted for location accuracy), 15% time, 25% emergency type, 15% shared details. <b>≥ 0.70</b> links automatically and can be split out in one click. <b>0.50–0.69</b> is kept separate and sent to a person for review. Different emergency types never merge.</p></div>
+      <div><h3>3 · Score urgency</h3><ul><li>Danger words 50%</li><li>Caller distress 20%</li><li>Vulnerable people 15%</li><li>Report surge 15%</li></ul><p style="margin-top:6px">Score bands: 70+ P1, 45+ P2, 25+ P3. Hard rules also apply: "not breathing", "trapped", "people inside" or a weapon always mean P1. A calm voice never lowers priority.</p></div>
+      <div><h3>4 · Never ignore a duplicate</h3><p>Every new report on a known incident is still read. If it adds danger, the whole incident moves up and the row shows which report raised it.</p></div>
+      <div><h3>Scale</h3><p>Incidents are stored in 1 km grid cells, so each report is compared only with nearby open incidents, and the work per report stays the same as call volume grows. Plugs into existing dispatch (CAD) systems and can exchange incidents in the NG911 standard format (NENA EIDO). If it fails, call-taking continues exactly as it does today.</p></div>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="engine.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const START = 14 * 3600 + 2 * 60;
+const fmt = t => { const s = Math.floor(START + t); return [s / 3600 | 0, (s % 3600) / 60 | 0, s % 60].map(n => String(n).padStart(2, '0')).join(':'); };
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const PCOL = p => css('--p' + p);
+const TIER = { 1: 'Immediate', 2: 'Urgent', 3: 'Prompt', 4: 'Routine' };
+const CH = { call: 'Call', text: 'Text', app: 'App' };
+
+let engine, scen, si, simT, playing = true, speed = 10, selected = null, feed = [], placing = null, flashIds = new Set(), rid = 0, fitted = false;
+
+/* ---------- map: pre-rendered Esri tiles shipped with the page ---------- */
+const TB = { 14: [[47.60616, -122.36572], [47.63578, -122.29980]], 15: [[47.60616, -122.36572], [47.63578, -122.31079]],
+  16: [[47.60616, -122.36023], [47.63578, -122.31079]], 17: [[47.60801, -122.35748], [47.63393, -122.31079]] };
+const map = L.map('map', { minZoom: 14, maxZoom: 18, zoomSnap: .5, maxBounds: L.latLngBounds(TB[14]).pad(.02), maxBoundsViscosity: 1, attributionControl: true })
+  .setView([47.6205, -122.334], 15);
+map.attributionControl.setPrefix(false).addAttribution('Basemap © Esri, HERE, Garmin, USGS, © OpenStreetMap contributors · Imagery © Esri, Maxar, Earthstar Geographics');
+map.createPane('base').style.zIndex = 150;
+map.createPane('labels').style.zIndex = 390; map.getPane('labels').style.pointerEvents = 'none';
+const dark = matchMedia('(prefers-color-scheme: dark)');
+const isDark = () => document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && dark.matches);
+const ov = {};
+const overlay = (name, z, pane = 'base') => (ov[name + z] ||= L.imageOverlay(`tiles/${name}-${z}.webp`, TB[z], { pane, interactive: false }));
+let style = 'street', shown = [];
+function drawBase() {
+  const z = map.getZoom(), lvl = z < 14.75 ? 14 : z < 15.75 ? 15 : z < 16.5 ? 16 : 17;
+  const name = style === 'sat' ? 'sat' : isDark() ? 'dark' : 'street';
+  const want = [overlay(name, 14)];
+  if (lvl > 14) want.push(overlay(name, lvl));
+  if (style === 'sat') want.push(overlay('labels', lvl, 'labels'));
+  shown.filter(l => !want.includes(l)).forEach(l => map.removeLayer(l));
+  want.forEach(l => map.hasLayer(l) || l.addTo(map));
+  shown = want;
+}
+map.on('zoomend', drawBase);
+dark.addEventListener('change', () => { drawBase(); render(); });
+document.querySelectorAll('[data-layer]').forEach(b => b.onclick = () => {
+  style = b.dataset.layer; document.querySelectorAll('[data-layer]').forEach(x => x.setAttribute('aria-pressed', x === b)); drawBase();
+});
+drawBase();
+const dyn = L.layerGroup().addTo(map), pins = L.layerGroup().addTo(map);
+$('#fit').onclick = fitAll;
+function fitAll() { const pts = [...engine.incidents.values()].map(i => toLL(i.x, i.y)); if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(.2), { maxZoom: 16.5 }); }
+map.on('click', e => { if (!placing) return; ingest({ ...placing, lat: e.latlng.lat, lon: e.latlng.lng, acc: 20, locNote: 'Device location' }); endPlace(); render(); });
+function endPlace() { placing = null; $('#placeHint').hidden = true; $('#mapbox').classList.remove('placing'); }
+$('#cancelPlace').onclick = endPlace;
+
+function drawMap() {
+  dyn.clearLayers(); pins.clearLayers();
+  for (const inc of engine.incidents.values()) {
+    const ll = toLL(inc.x, inc.y), col = PCOL(inc.p), isSel = inc.id === selected;
+    L.circle(ll, { radius: 50 + 26 * Math.sqrt(inc.reports.length), color: col, weight: isSel ? 2.5 : 1.5, fillColor: col, fillOpacity: isSel ? .2 : .12, interactive: false }).addTo(dyn);
+    if (inc.p === 1) L.marker(ll, { icon: L.divIcon({ className: '', iconSize: [0, 0], html: `<div class="halo" style="background:${col}"></div>` }), interactive: false }).addTo(dyn);
+    for (const r of inc.reports) {
+      const rl = [r.lat, r.lon];
+      if (isSel) {
+        L.polyline([rl, ll], { color: col, weight: 1.2, opacity: .8, dashArray: '3 4', interactive: false }).addTo(dyn);
+        if (r.acc <= 500) L.circle(rl, { radius: r.acc, color: col, weight: 1, opacity: .45, fillOpacity: .05, interactive: false }).addTo(dyn);
+      }
+      L.circleMarker(rl, { radius: isSel ? 5 : 3.5, color: '#fff', weight: 1.3, fillColor: col, fillOpacity: 1 })
+        .bindTooltip(`<b>#${r.id}</b> · ${fmt(r.t)} · ${esc(CH[r.ch])}<br>${esc(r.text.slice(0, 110))}`, { direction: 'top' })
+        .on('click', () => select(inc.id)).addTo(dyn);
+    }
+    if (inc.review) { const c = engine.incidents.get(inc.review.incId); if (c) L.polyline([ll, toLL(c.x, c.y)], { color: css('--rev'), weight: 2.5, dashArray: '6 6', interactive: false }).addTo(dyn); }
+    const icon = L.divIcon({ className: '', iconSize: [0, 0], html: `<div class="pin p${inc.p}${isSel ? ' sel' : ''}${inc.review ? ' rv' : ''}"><span class="sc">${inc.score}</span><span>${inc.id} · ${inc.reports.length}</span></div>` });
+    L.marker(ll, { icon, zIndexOffset: (5 - inc.p) * 1000 + inc.score + (isSel ? 9000 : 0), title: `${inc.id}, P${inc.p}, urgency ${inc.score}` }).on('click', () => select(inc.id)).addTo(pins);
+  }
+}
+
+/* ---------- queue ---------- */
+const sorted = () => [...engine.incidents.values()].sort((a, b) => a.p - b.p || b.score - a.score || a.firstT - b.firstT);
+function chips(inc) {
+  const out = inc.flags.filter(f => f.sev >= 2 || f.vuln).slice(0, 4).map(f => `<span class="chip ${f.vuln ? 'v' : 's' + f.sev}">${esc(f.label)}</span>`);
+  return out.join('');
+}
+function renderQueue() {
+  const list = sorted();
+  $('#queue').innerHTML = list.length ? list.map(inc => {
+    const r = inc.review, c = r && engine.incidents.get(r.incId), f = inc.factors;
+    return `<div class="item p${inc.p}${inc.id === selected ? ' sel' : ''}${flashIds.has(inc.id) ? ' flash' : ''}" data-id="${inc.id}" role="button" tabindex="0" aria-label="${inc.id}, P${inc.p}, urgency ${inc.score}">
+      <div class="badge"><span class="p">P${inc.p}</span><span class="s">${inc.score}</span></div>
+      <div class="ibody">
+        <div class="itop"><span class="tier">${TIER[inc.p]}</span><span class="id">${inc.id} · ${fmt(inc.firstT)}</span><span class="cnt">${inc.reports.length} report${inc.reports.length > 1 ? 's' : ''}</span></div>
+        <div class="ititle">${esc(CAT[inc.cat].label)} · ${esc(placeName(inc))}</div>
+        <div class="minibars" title="Danger words · Caller distress · Vulnerable people · Report surge">${[f.danger, f.distress, f.vulnerable, f.surge].map(v => `<span class="mb"><i style="width:${v}%"></i></span>`).join('')}</div>
+        ${inc.flags.some(x => x.sev >= 2 || x.vuln) ? `<div class="chips">${chips(inc)}</div>` : ''}
+        ${inc.esc ? `<div class="esc">▲ Raised P${inc.esc.from} → P${inc.esc.to} by report #${inc.esc.by}: ${esc(inc.esc.why)}</div>` : ''}
+        ${r && c ? `<div class="review"><div><b>Possible duplicate of ${c.id}</b> · match ${r.score.toFixed(2)}</div><div class="why">${esc(explain(r))}</div>
+          <div class="acts"><button class="btn small" data-merge="${inc.id}" data-into="${c.id}" type="button">Merge into ${c.id}</button><button class="btn small" data-keep="${inc.id}" type="button">Keep separate</button></div></div>` : ''}
+      </div></div>`;
+  }).join('') : '<div class="empty">Waiting for the first report…</div>';
+}
+function explain(s) {
+  const p = [`${Math.round(s.d)} m apart`, s.dt < 60 ? `${Math.max(0, Math.round(s.dt))} s since last report` : `${Math.round(s.dt / 60)} min since last report`,
+    s.type === 1 ? 'same type' : s.rcat === 'unknown' ? 'type unclear' : `related type (${s.rcat} / ${s.icat})`];
+  if (s.shared?.length) p.push('shared: ' + s.shared.join(', '));
+  if (s.conflict) p.push('opposite direction of travel');
+  if (s.acc > 500) p.push(`location only ±${(s.acc / 1000).toFixed(1)} km`);
+  return p.join(' · ');
+}
+
+/* ---------- breakdown ---------- */
+function highlight(text) {
+  const ranges = [];
+  for (const f of FLAGS.concat([{ re: VULN }])) {
+    const re = new RegExp(f.re.source, 'gi'); let m;
+    while ((m = re.exec(text))) { ranges.push([m.index, m.index + m[0].length]); if (!m[0].length) re.lastIndex++; }
+  }
+  ranges.sort((a, b) => a[0] - b[0]);
+  let out = '', i = 0;
+  for (const [a, b] of ranges) { if (a < i) continue; out += esc(text.slice(i, a)) + '<mark>' + esc(text.slice(a, b)) + '</mark>'; i = b; }
+  return out + esc(text.slice(i));
+}
+function toneMeter(r) {
+  if (r.distress == null) return `<span class="tone">No audio</span>`;
+  const n = Math.round(r.distress * 5), col = r.tone === 'panicked' ? 'var(--p1)' : r.tone === 'distressed' ? 'var(--p2)' : 'var(--p4)';
+  return `<span class="tone" style="--tc:${col}">${r.tone}${r.toneEst ? ' (est.)' : ''}<span class="segs">${[1, 2, 3, 4, 5].map(k => `<i class="${k <= n ? 'on' : ''}"></i>`).join('')}</span></span>`;
+}
+function renderDetail() {
+  const inc = selected && engine.incidents.get(selected);
+  $('#dHint').textContent = inc ? `${inc.reports.length} linked report${inc.reports.length > 1 ? 's' : ''}` : 'Select a row or map pin';
+  if (!inc) { $('#detail').innerHTML = '<div class="empty">Select an incident to see its urgency score and the reports behind it.</div>'; return; }
+  const f = inc.factors, rs = inc.reports;
+  const tones = { panicked: 0, distressed: 0, calm: 0, none: 0 }; rs.forEach(r => tones[r.tone || 'none']++);
+  const dangerEv = inc.flags.filter(x => x.sev > 0).map(x => `${x.label} (#${x.by.id}${x.by.lang === 'ES' ? ', Spanish' : ''})`).join(' · ') || 'No danger words heard yet';
+  const vul = inc.flags.filter(x => x.vuln).map(x => `${x.label} (#${x.by.id})`).join(' · ') || 'None mentioned';
+  const rows = [
+    ['Danger words', '× 0.50', f.danger, dangerEv],
+    ['Caller distress', '× 0.20 · voice', f.distress, [tones.panicked && `${tones.panicked} panicked`, tones.distressed && `${tones.distressed} distressed`, tones.calm && `${tones.calm} calm`, tones.none && `${tones.none} text/app (no audio)`].filter(Boolean).join(' · ') + ' · loudest 3 callers averaged'],
+    ['Vulnerable people', '× 0.15', f.vulnerable, vul],
+    ['Report surge', '× 0.15', f.surge, `${inc.surge} report${inc.surge > 1 ? 's' : ''} in the 5 min before the latest`],
+  ];
+  const ch = {}; rs.forEach(x => ch[x.ch] = (ch[x.ch] || 0) + 1);
+  const chs = Object.entries(ch).map(([k, v]) => `${v} ${CH[k].toLowerCase()}${v > 1 ? 's' : ''}`).join(', ');
+  const band = inc.score >= 70 ? 1 : inc.score >= 45 ? 2 : inc.score >= 25 ? 3 : 4;
+  const ruleTxt = inc.p < band ? (inc.rule ? `<b>P${inc.p} by rule:</b> “${esc(inc.rule)}” always gets at least P${inc.p}, even though the score alone would give P${band}.` : `<b>P${inc.p} by default</b> for ${esc(CAT[inc.cat].label.toLowerCase())} incidents.`)
+    : `<b>P${inc.p} from score:</b> ${inc.score} is in the ${band === 1 ? '70+' : band === 2 ? '45–69' : band === 3 ? '25–44' : '0–24'} band.`;
+  const place = placeName(inc).replace(/^near /, '').replace(/ · .*/, '');
+  const qmsg = rs.length >= 6 ? `If you are calling about the ${CAT[inc.cat].label.toLowerCase()} at ${place}, help is on the way. Press 1 to add new information. Stay on the line for any other emergency.` : null;
+  $('#detail').innerHTML = `
+  <div class="dhead" style="--pc:${PCOL(inc.p)};--pb:${css('--p' + inc.p + '-bg')}">
+    <div class="bigscore"><b>${inc.score}</b><span>URGENCY</span></div>
+    <div><div class="tierline">P${inc.p} · ${TIER[inc.p]} · ${inc.id}</div><h3>${esc(CAT[inc.cat].label)} · ${esc(placeName(inc))}</h3>
+      <p>First report ${fmt(inc.firstT)} · latest ${fmt(inc.lastT)} · ${chs}</p></div>
+  </div>
+  <div class="sec" style="--pc:${PCOL(inc.p)};--pb:${css('--p' + inc.p + '-bg')}">
+    <h4><span>Score breakdown</span><span>0–100</span></h4>
+    <div class="factors">${rows.map(([l, w, v, ev]) => `<div class="factor"><div class="fl">${l}<small>${w}</small></div><div class="bar" role="img" aria-label="${l} ${v} of 100"><i style="width:${v}%"></i></div><div class="fv">${v}</div><div class="ev">${esc(ev)}</div></div>`).join('')}</div>
+    <div class="rulebox" style="margin-top:14px">${ruleTxt}${inc.esc ? ` Raised from P${inc.esc.from} at ${fmt(inc.esc.t)} by report #${inc.esc.by} (${esc(inc.esc.why)}).` : ''}</div>
+  </div>
+  ${qmsg ? `<div class="sec"><h4><span>Suggested hold-queue message</span></h4><div class="qmsg"><q>${esc(qmsg)}</q><button class="btn small" type="button" id="copyQ">Copy</button></div></div>` : ''}
+  <div class="sec"><h4><span>Reports, newest first</span><span>danger words highlighted</span></h4><ul class="rlist">${rs.slice().reverse().map(r => {
+    const m = r.match;
+    return `<li class="rrow">
+      <div class="rmeta"><span class="t">#${r.id} · ${fmt(r.t)}</span><span class="tag">${CH[r.ch]}</span>${r.lang === 'ES' ? '<span class="tag">Spanish</span>' : ''}${r.info ? '<span class="tag">info only</span>' : ''}${toneMeter(r)}</div>
+      <div class="rtext">“${highlight(r.text)}”</div>
+      <dl class="ai"><dt>Type</dt><dd>${esc(CAT[r.cat].label)}</dd>
+        <dt>Location</dt><dd>${r.locNote ? esc(r.locNote) + ' · ' : ''}±${r.acc >= 1000 ? (r.acc / 1000).toFixed(1) + ' km (cell tower only)' : r.acc + ' m'}</dd>
+        ${r.desc.size ? `<dt>Details</dt><dd>${esc([...r.desc].join(', '))}</dd>` : ''}</dl>
+      <div class="match">${m ? `<span>${m.manual ? 'Merged by dispatcher' : `Linked · match <b>${m.score.toFixed(2)}</b>`} · ${esc(explain(m))}</span><button class="btn small" data-split="${r.id}" type="button">Split out</button>` : `<span>First report · opened ${inc.id}</span>`}</div>
+    </li>`; }).join('')}</ul></div>`;
+  const cq = $('#copyQ');
+  if (cq) cq.onclick = () => { try { navigator.clipboard.writeText(qmsg).then(() => cq.textContent = 'Copied', () => {}); } catch (e) {} };
+}
+
+/* ---------- feed + strip ---------- */
+function renderFeed() {
+  $('#feed').innerHTML = feed.slice(0, 120).map((f, i) => `<li data-id="${f.incId}" class="${i === 0 && f.fresh ? 'fresh' : ''}"><span class="t">${fmt(f.t)}</span><span class="txt"><span class="ch">${CH[f.ch]} #${f.id}</span>${esc(f.text)}</span>
+    <span class="dec ${f.type}">${f.type === 'linked' ? `Linked to ${f.incId} · match ${f.score.toFixed(2)}` : f.type === 'review' ? `New ${f.incId} · possible duplicate of ${f.cand} (${f.score.toFixed(2)})` : `New incident ${f.incId}`}</span></li>`).join('')
+    || '<li class="empty" style="display:block">No reports yet.</li>';
+  feed.forEach(f => f.fresh = false);
+}
+function renderStrip() {
+  const n = engine.reports.length, k = engine.incidents.size, incs = [...engine.incidents.values()], ch = { call: 0, text: 0, app: 0 };
+  engine.reports.forEach(r => ch[r.ch]++);
+  $('#sReports').textContent = n; $('#sChannels').textContent = `${ch.call} calls · ${ch.text} texts · ${ch.app} app`;
+  $('#sInc').textContent = k; $('#sDupPct').textContent = `${n - k} duplicates folded${n ? ` (${Math.round((n - k) / n * 100)}%)` : ''}`;
+  $('#sP1').textContent = incs.filter(i => i.p === 1).length; $('#sRev').textContent = incs.filter(i => i.review).length;
+}
+function render() { renderStrip(); renderQueue(); renderDetail(); renderFeed(); drawMap(); flashIds.clear(); }
+function select(id) { selected = id; render(); }
+
+function ingest(src) {
+  const p = toXY(src.lat, src.lon);
+  const r = { id: ++rid, t: src.t ?? simT, lat: src.lat, lon: src.lon, x: p.x, y: p.y, acc: src.acc, ch: src.ch, tone: src.tone, toneEst: src.toneEst, text: src.text, locNote: src.locNote };
+  const res = engine.process(r);
+  feed.unshift({ t: r.t, id: r.id, ch: r.ch, text: r.text, type: res.type, incId: res.inc.id, score: res.s?.score ?? 0, cand: res.s?.incId, fresh: true });
+  if (res.type !== 'linked') flashIds.add(res.inc.id);
+  engine.events.forEach(e => flashIds.add(e.inc)); engine.events = [];
+  if (!selected) selected = res.inc.id;
+  return res;
+}
+
+/* ---------- interactions ---------- */
+document.addEventListener('click', e => {
+  const t = e.target.closest('button,[data-id]'); if (!t) return;
+  if (t.dataset.merge) { engine.merge(t.dataset.merge, t.dataset.into); selected = t.dataset.into; render(); return; }
+  if (t.dataset.keep) { engine.keep(t.dataset.keep); render(); return; }
+  if (t.dataset.split) { const n = engine.split(+t.dataset.split); if (n) { flashIds.add(n.id); selected = n.id; } render(); return; }
+  if (t.dataset.id && engine.incidents.has(t.dataset.id)) { select(t.dataset.id); const inc = engine.incidents.get(t.dataset.id); map.panTo(toLL(inc.x, inc.y)); }
+});
+document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.item')) { e.preventDefault(); e.target.click(); } });
+$('#play').onclick = () => { playing = !playing; $('#play').textContent = playing ? 'Pause' : 'Play'; $('#live').classList.toggle('paused', !playing); $('#live').textContent = playing ? 'Live replay' : 'Paused'; };
+$('#speed').onchange = e => speed = +e.target.value;
+$('#replay').onclick = reset;
+$('#stress').onclick = () => {
+  const box = $('#stressOut'); box.hidden = false; box.innerHTML = '<h3>Running 10,000 simulated reports…</h3>';
+  setTimeout(() => {
+    const s = stressTest(10000);
+    box.innerHTML = `<h3><span>Stress test · 10,000 reports · ${s.trueInc.toLocaleString()} real incidents · 40 × 40 km metro · 6 hours</span><button class="btn small" type="button" id="closeStress">Close</button></h3>
+      <div class="kv"><span>Total time</span><b>${s.ms.toFixed(0)} ms</b></div>
+      <div class="kv"><span>Per report</span><b>${s.per.toFixed(1)} µs</b></div>
+      <div class="kv"><span>Duplicates caught</span><b>${(s.recall * 100).toFixed(1)}%</b></div>
+      <div class="kv"><span>Wrongly merged</span><b>${(s.wrong * 100).toFixed(2)}%</b></div>
+      <div class="kv"><span>Sent to review</span><b>${s.review.toLocaleString()}</b></div>
+      <div class="kv"><span>Incidents to manage</span><b>${s.found.toLocaleString()}</b></div>
+      <p>Runs in this browser tab on synthetic reports where the right answer is known, with realistic GPS error and 4% cell-tower-only locations. When the engine is unsure, it keeps reports separate and sends them to review. A missed duplicate costs a little extra work, never a missed emergency.</p>`;
+    $('#closeStress').onclick = () => box.hidden = true;
+  }, 30);
+};
+
+function estTone(t) { return /!|please hurry|hurry|oh my god|help me|oh god|ayuda/i.test(t) ? 'panicked' : /please|scared|i think|quick/i.test(t) ? 'distressed' : 'calm'; }
+function submitCall(text) {
+  text = text.trim(); if (!text) return;
+  const g = GAZ.find(g => g.re.test(text.toLowerCase()));
+  const base = { text, ch: 'call', tone: estTone(text), toneEst: true };
+  if (g) {
+    const j = () => (Math.random() - .5) * .0003;
+    const res = ingest({ ...base, lat: g.lat + j(), lon: g.lon + j(), acc: g.acc, locNote: `“${g.name}” heard in call` });
+    selected = res.inc.id; render(); map.panTo(toLL(res.inc.x, res.inc.y));
+  } else { placing = base; $('#placeHint').hidden = false; $('#mapbox').classList.add('placing'); }
+  $('#addText').value = '';
+}
+$('#addForm').onsubmit = e => { e.preventDefault(); submitCall($('#addText').value); };
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+$('#micBtn').onclick = () => {
+  if (!SR) { $('#liveNote').textContent = 'Live transcription needs Chrome or Edge. Type the call instead.'; return; }
+  if (rec) { rec.stop(); return; }
+  try { rec = new SR(); } catch (e) { $('#liveNote').textContent = 'Live transcription is unavailable here. Type the call instead.'; return; }
+  rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = true;
+  let finalText = '';
+  rec.onresult = ev => { let interim = ''; for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finalText += t + ' '; else interim += t; } $('#addText').value = finalText + interim; };
+  rec.onerror = ev => { $('#liveNote').textContent = ev.error === 'not-allowed' ? 'The microphone is blocked in this view. Type the call instead, or run the local copy to speak.' : 'Transcription stopped (' + ev.error + '). Type the call instead.'; };
+  rec.onend = () => { $('#micBtn').classList.remove('rec'); $('#micBtn span').textContent = 'Speak'; const t = $('#addText').value; rec = null; if (t.trim()) submitCall(t); };
+  try { rec.start(); } catch (e) { rec = null; return; }
+  $('#micBtn').classList.add('rec'); $('#micBtn span').textContent = 'Stop & send'; $('#liveNote').textContent = 'Listening. Speak like a caller, then press Stop & send.';
+};
+
+function reset() {
+  engine = new Engine(); scen = buildScenario(); si = 0; simT = 0; rid = 0; feed = []; selected = null; fitted = false;
+  $('#stressOut').hidden = true; render(); map.setView([47.6205, -122.334], 15);
+}
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(.25, (now - last) / 1000); last = now;
+  if (playing) {
+    simT += dt * speed; let changed = false;
+    while (si < scen.length && scen[si].t <= simT) { ingest(scen[si]); si++; changed = true; }
+    if (changed) { render(); if (!fitted && engine.incidents.size >= 4) { fitAll(); fitted = true; } }
+    $('#clock').textContent = fmt(simT);
+  }
+  requestAnimationFrame(frame);
+}
+reset(); requestAnimationFrame(frame);
+</script>
